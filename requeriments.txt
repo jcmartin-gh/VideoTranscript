@@ -1,0 +1,13 @@
+streamlit>=1.36.0
+faster-whisper==1.0.3
+numpy<2.0.0  # (si tuvieras problemas con wheels en cloud)
+pandas>=2.2.2
+
+# Google Drive (Service Account)
+google-api-python-client>=2.131.0
+google-auth>=2.33.0
+google-auth-httplib2>=0.2.0
+
+# Opcional: si subes audios/vídeos "raros", considera añadir pydub o av
+# pydub>=0.25.1
+# av==12.0.5
