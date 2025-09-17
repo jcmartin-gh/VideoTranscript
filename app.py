@@ -24,8 +24,8 @@ from faster_whisper import WhisperModel
 
 # ----------------------- CONFIG UI -----------------------
 st.set_page_config(page_title="Transcriptor de Vídeos (4 min)", page_icon="🎧", layout="wide")
-st.title("Transcriptor de Vídeos con Whisper (bloques de 4 minutos)")
-st.caption("Convierte vídeos de Google Drive o archivos subidos a transcripciones con marcas cada 4 minutos y subtítulos SRT.")
+st.title("Transcriptor de Vídeos con Whisper")
+st.caption("Convierte vídeos de Google Drive o archivos subidos a transcripciones con marcas de tiempo y subtítulos SRT.")
 
 # ----------------------- CONSTANTES -----------------------
 BLOQUE_SEGUNDOS_DEFAULT = 4 * 60  # 4 minutos
@@ -72,7 +72,7 @@ def guardar_srt(segments, ruta_destino: Path) -> Path:
     return ruta_srt
 
 def guardar_transcripcion_4min(ruta_video: Path, titulo: str, bloques) -> Path:
-    ruta_txt = ruta_video.with_name(f"{ruta_video.stem}_transcript_4min.txt")
+    ruta_txt = ruta_video.with_suffix(".txt")
     with open(ruta_txt, "w", encoding="utf-8") as f:
         f.write(f"Título: {titulo}\n\n")
         for b in bloques:
@@ -180,6 +180,11 @@ with st.sidebar:
 
     model_name = st.selectbox("Modelo Whisper (faster-whisper)", ["small", "base", "medium", "large-v3"], index=0)
     force_lang = st.text_input("Forzar idioma (ej. es) [vacío = autodetección]", value="")
+    # Beam size en faster-whisper. (entre 1 y 10). Cuanto mayor más exactitud y más lento
+    # CPU en Streamlit Cloud (sin GPU): empieza con 2–4.
+    # Audio difícil / acentos / ruido: sube a 5–6.
+    # Procesar muchos vídeos / ir más rápido: baja a 1–2.
+    # Más de 7–8 rara vez compensa el coste.
     beam_size = st.number_input("Beam size", 1, 10, 5)
     vad_filter = st.checkbox("VAD filter", value=True)
     bloque_seg = st.number_input("Ventana de capítulo (segundos)", 60, 1800, BLOQUE_SEGUNDOS_DEFAULT, step=60)
@@ -259,7 +264,7 @@ if archivos_locales:
 
                 # Bloques 4 min
                 bloques = agrupar_por_bloques(segments_list, bloque_s=bloque_seg)
-                txt_path = out_dir / (Path(display_name).stem + "_transcript_4min.txt")
+                txt_path = out_dir / (Path(display_name).stem + ".txt")
                 txt_path = guardar_transcripcion_4min(txt_path, Path(display_name).stem, bloques)
 
                 # Duración aprox por último segmento
