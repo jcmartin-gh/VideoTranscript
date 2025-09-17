@@ -111,14 +111,26 @@ def transcribir_archivo(local_path: Path, model, force_lang: Optional[str], beam
     return segments_list, info, palabras_total
 
 # ---------------- Google Drive helpers (Service Account) ----------------
+
 def get_drive_service():
     """
     Requiere en secrets:
     [gcp_service_account] -> JSON de la cuenta de servicio
     """
-    if "gcp_service_account" not in st.secrets:
-        st.error("Falta el bloque [gcp_service_account] en secrets. Consulta las instrucciones de despliegue.")
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+    except ModuleNotFoundError:
+        st.error(
+            "Faltan dependencias de Google. Añade a requirements.txt: "
+            "`google-auth`, `google-api-python-client`, `google-auth-httplib2` y vuelve a desplegar."
+        )
         st.stop()
+
+    if "gcp_service_account" not in st.secrets:
+        st.error("Falta el bloque [gcp_service_account] en secrets. Ve a Settings → Secrets y pégalo.")
+        st.stop()
+
     scopes = ["https://www.googleapis.com/auth/drive.readonly"]
     creds = service_account.Credentials.from_service_account_info(
         st.secrets["gcp_service_account"], scopes=scopes
