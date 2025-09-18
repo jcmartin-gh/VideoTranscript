@@ -273,24 +273,25 @@ elif fuente == "Subir archivos":
 
 # Añadido
 # ---- Acciones sobre la lista de archivos preparada ----
-if archivos_locales:
-    st.success(f"Archivos preparados: {len(archivos_locales)}")
-    with st.expander("Ver lista de archivos preparados", expanded=False):
-        for i, (p, name) in enumerate(list(archivos_locales)):
-            c1, c2 = st.columns([8, 1])
-            with c1:
-                st.write(f"- {name}")
-            with c2:
-                if st.button("🗑️", key=f"del_{i}"):
-                    archivos_locales.pop(i)
-                    ss.uploader_names.discard(name)  # <- evita que reaparezca si sigue en el widget
-                    if hasattr(st, "experimental_rerun"):
-                        st.experimental_rerun()
-                    else:
-                        st.rerun()
+# ---- Acciones sobre la lista de archivos preparada ----
+list_box = st.container()
+with list_box:
+    if archivos_locales:
+        st.success(f"Archivos preparados: {len(archivos_locales)}")
+        st.markdown("")  # separador para evitar solape con el expander
 
-else:
-    st.info("No hay archivos preparados todavía.")
+        with st.expander("Ver lista de archivos preparados", expanded=False):
+            for i, (p, name) in enumerate(list(archivos_locales)):
+                c1, c2 = st.columns([9, 1])
+                with c1:
+                    st.markdown(f"• **{name}**")
+                with c2:
+                    if st.button("🗑️", key=f"del_{i}", help=f"Eliminar {name}"):
+                        archivos_locales.pop(i)
+                        ss.uploader_names.discard(name)
+                        st.rerun()
+    else:
+        st.info("No hay archivos preparados todavía.")
 
 col_a, col_b = st.columns(2)
 with col_a:
