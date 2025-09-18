@@ -447,7 +447,7 @@ if 'start_now' in locals() and start_now:
     #csv_bytes = df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
     st.subheader("Descargas")
-    st.download_button("📥 Descargar ZIP (.srt + _transcript_4min.txt)", data=zip_buffer.getvalue(), file_name="transcripciones.zip")
+    st.download_button("📥 Descargar ZIP (.srt + .txt)", data=zip_buffer.getvalue(), file_name="transcripciones.zip")
     #st.download_button("📊 Descargar resumen_transcripciones.csv", data=csv_bytes, file_name="resumen_transcripciones.csv", mime="text/csv")
 else:
     st.info("Selecciona una fuente y prepara al menos un archivo para transcribir.")
