@@ -24,6 +24,22 @@ from faster_whisper import WhisperModel
 
 # ----------------------- CONFIG UI -----------------------
 st.set_page_config(page_title="Transcriptor de Vídeos (4 min)", page_icon="🎧", layout="wide")
+
+# --- UI: CSS global (ponlo una sola vez) ---
+st.markdown("""
+<style>
+.inline-row{display:flex; align-items:center; gap:.5rem; flex-wrap:wrap}
+.spin{
+  display:inline-block; width:1rem; height:1rem;
+  border:2px solid rgba(0,0,0,.25); border-top-color: currentColor;
+  border-radius:50%; animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.tick{color:#16a34a; font-weight:700}
+.muted{opacity:.7}
+</style>
+""", unsafe_allow_html=True)
+
 st.title("Transcriptor de Vídeos con Whisper")
 st.caption("Convierte vídeos de Google Drive o archivos subidos a transcripciones con marcas de tiempo y subtítulos SRT.")
 
@@ -32,6 +48,43 @@ BLOQUE_SEGUNDOS_DEFAULT = 4 * 60  # 4 minutos
 EXTS = {".mp4", ".mov", ".mkv", ".webm", ".m4a", ".mp3", ".wav"}
 
 # ----------------------- UTILIDADES -----------------------
+
+# --- Helpers de UI ---
+import time
+
+def _fmt_duration(s: float) -> str:
+    m, s = divmod(int(s), 60)
+    h, m = divmod(m, 60)
+    if h: return f"{h:d}:{m:02d}:{s:02d}"
+    return f"{m:d}:{s:02d}"
+
+def ui_start_processing(filename: str):
+    """
+    Crea/actualiza una línea de estado: 'Procesando: <file> ... [spinner]'
+    Devuelve (placeholder, t0) para cerrar después.
+    """
+    ph = st.empty()
+    ph.markdown(
+        f"""<div class="inline-row">
+              <div>Procesando: <b>{filename}</b>…</div>
+              <div class="spin"></div>
+            </div>""",
+        unsafe_allow_html=True
+    )
+    return ph, time.perf_counter()
+
+def ui_end_processing(ph, filename: str, elapsed_sec: float):
+    """
+    Cambia el estado a '✅ Procesado' y muestra duración.
+    """
+    ph.markdown(
+        f"""<div class="inline-row">
+              <div><span class="tick">✅ Procesado</span> <b>{filename}</b></div>
+              <div class="muted">({_fmt_duration(elapsed_sec)})</div>
+            </div>""",
+        unsafe_allow_html=True
+    )
+
 def human_time(seconds: float) -> str:
     seconds = max(0, int(round(seconds)))
     return str(timedelta(seconds=seconds))
@@ -340,6 +393,7 @@ if 'start_now' in locals() and start_now:
             for local_path, display_name in files_to_process:
                 st.write("---")
                 st.write(f"**Procesando:** {display_name}")
+                ph, t0 = ui_start_processing(display_name)
                 # ⬇️ A partir de aquí, mantén tu lógica tal cual (transcribir, guardar SRT/TXT, añadir al ZIP, etc.)
                 try:
                     segments_list, info, palabras_total = transcribir_archivo(
@@ -354,14 +408,17 @@ if 'start_now' in locals() and start_now:
                     bloques = agrupar_por_bloques(segments_list, bloque_s=bloque_seg)
                     txt_path = out_dir / (Path(display_name).stem + ".txt")
                     txt_path = guardar_transcripcion_4min(txt_path, Path(display_name).stem, bloques)
-
+                    elapsed = time.perf_counter() - t0
+                    ui_end_processing(ph, display_name, elapsed)
                     # Duración aprox por último segmento
                     if segments_list:
                         dur = max(float(s.end) for s in segments_list if s.end is not None)
                     else:
                         dur = 0.0
 
-                    st.success(f"✓ Listo: {display_name} | Duración aprox: {human_time(dur)} | Idioma detectado: {getattr(info,'language', 'auto')}")
+                    st.success(
+                        f"✓ Listo: {display_name} | Duración: {human_time(dur)} | Idioma detectado: {getattr(info,'language', 'auto')} | Tiempo de Procesado: {_fmt_duration(elapsed)}"
+                    )
 
                     # Añadir a ZIP
                     zf.write(srt_path, arcname=srt_path.name)
@@ -374,10 +431,12 @@ if 'start_now' in locals() and start_now:
                         "idioma": getattr(info, "language", None),
                         "prob_idioma": round(getattr(info, "language_probability", 0.0), 4) if getattr(info, "language_probability", None) else None,
                         "palabras": palabras_total,
-                        "bloques_4min": len(bloques),
+                        "bloques_min": len(bloques),
                         "bloques_con_texto": sum(1 for b in bloques if b["texto"]),
-                        "txt_4min": txt_path.name,
-                        "srt": srt_path.name
+                        "txt_min": txt_path.name,
+                        "srt": srt_path.name,
+                        "tiempo_proceso_seg": round(elapsed, 2),
+                        "tiempo_proceso_hhmmss": _fmt_duration(elapsed)
                     })
 
                 except Exception as e:
