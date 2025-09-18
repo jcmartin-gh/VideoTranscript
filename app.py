@@ -163,74 +163,12 @@ def transcribir_archivo(local_path: Path, model, force_lang: Optional[str], beam
     palabras_total = sum(len((s.text or "").strip().split()) for s in segments_list if s.text)
     return segments_list, info, palabras_total
 
-# ---------------- Google Drive helpers (Service Account) ----------------
-
-def get_drive_service():
-    """
-    Requiere en secrets:
-    [gcp_service_account] -> JSON de la cuenta de servicio
-    """
-    try:
-        from google.oauth2 import service_account
-        from googleapiclient.discovery import build
-    except ModuleNotFoundError:
-        st.error(
-            "Faltan dependencias de Google. Añade a requirements.txt: "
-            "`google-auth`, `google-api-python-client`, `google-auth-httplib2` y vuelve a desplegar."
-        )
-        st.stop()
-
-    if "gcp_service_account" not in st.secrets:
-        st.error("Falta el bloque [gcp_service_account] en secrets. Ve a Settings → Secrets y pégalo.")
-        st.stop()
-
-    scopes = ["https://www.googleapis.com/auth/drive.readonly"]
-    creds = service_account.Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"], scopes=scopes
-    )
-    return build("drive", "v3", credentials=creds, cache_discovery=False)
-
-def listar_archivos_drive(drive, folder_id: str) -> List[Dict]:
-    """Lista vídeos/audio en una carpeta por folder_id."""
-    q = f"'{folder_id}' in parents and trashed=false and (mimeType contains 'video/' or mimeType contains 'audio/')"
-    results = []
-    page_token = None
-    while True:
-        resp = drive.files().list(
-            q=q,
-            fields="nextPageToken, files(id, name, mimeType, size, createdTime, modifiedTime)",
-            pageToken=page_token,
-            pageSize=1000,
-            orderBy="name_natural"
-        ).execute()
-        results.extend(resp.get("files", []))
-        page_token = resp.get("nextPageToken")
-        if not page_token:
-            break
-    return results
-
-def descargar_archivo_drive(drive, file_id: str, destino: Path) -> Path:
-    from googleapiclient.http import MediaIoBaseDownload  # <-- AÑADIR
-    request = drive.files().get_media(fileId=file_id)
-    destino.parent.mkdir(parents=True, exist_ok=True)
-    with open(destino, "wb") as f:
-        downloader = MediaIoBaseDownload(f, request)
-        done = False
-        pbar = st.progress(0, text=f"Descargando {destino.name} ...")
-        i = 0
-        while not done:
-            status, done = downloader.next_chunk()
-            i += 1
-            if status:
-                pbar.progress(min(1.0, status.progress()))
-        pbar.empty()
-    return destino
 
 # ----------------------- UI: SIDEBAR -----------------------
 with st.sidebar:
     st.header("Parámetros")
 
-    fuente = st.radio("Fuente de archivos", ["Google Drive (Service Account)", "Subir archivos"], index=0)
+    #fuente = st.radio("Fuente de archivos", ["Google Drive (Service Account)", "Subir archivos"], index=0)
 
     model_name = st.selectbox("Modelo Whisper (faster-whisper)", ["small", "base", "medium", "large-v3"], index=0)
     force_lang = st.text_input("Forzar idioma (ej. es) [vacío = autodetección]", value="")
@@ -259,69 +197,34 @@ carpeta_trabajo = Path("work")
 out_dir = Path("output")
 out_dir.mkdir(exist_ok=True)
 
-if fuente.startswith("Google Drive"):
-    drive = get_drive_service()
-    folder_id = st.text_input("Google Drive Folder ID", placeholder="p.ej. 1AbCDeFgHiJkLmNoPq...", value="")
-    st.caption("Comparte la carpeta con el email de la **Service Account** de tus secrets. Abre la carpeta en Drive y copia el ID de la URL.")
-    if folder_id:
-        with st.spinner("Listando archivos en la carpeta..."):
-            files = listar_archivos_drive(drive, folder_id)
-        if not files:
-            st.info("No se han encontrado vídeos/audio en la carpeta indicada.")
-        else:
-            df = pd.DataFrame([
-                {
-                    "name": f["name"],
-                    "mimeType": f["mimeType"],
-                    "size_MB": round(int(f.get("size", 0)) / (1024 * 1024), 2) if f.get("size") else None,
-                    "id": f["id"],
-                } for f in files
-            ])
-            st.dataframe(df, use_container_width=True, hide_index=True)
-            st.success(f"Archivos encontrados: {len(df)}")
+up = st.file_uploader(
+    "Arrastra tus vídeos/audio",
+    type=[e.lstrip(".") for e in EXTS],
+    accept_multiple_files=True,
+    key=f"uploader_{ss.uploader_key}"  # <- clave variable para poder resetear
+)
 
-            to_process = st.multiselect(
-                "Selecciona archivos a procesar",
-                options=[f["id"] for f in files],
-                format_func=lambda fid: next((f["name"] for f in files if f["id"] == fid), fid),
-            )
+# Nombres actualmente visibles en el widget (tras quitar con la “x”, ya no estarán aquí)
+curr_names = {f.name for f in (up or [])}
 
-            if to_process and st.button("⬇️ Descargar selección"):
-                for fid in to_process:
-                    name = next(f["name"] for f in files if f["id"] == fid)
-                    local_path = carpeta_trabajo / name
-                    descargar_archivo_drive(drive, fid, local_path)
-                    archivos_locales.append((local_path, name))
+# 1) Sincroniza eliminaciones hechas en el widget (las “x”)
+if ss.uploader_names:
+    for i, (p, name) in enumerate(list(archivos_locales)):
+        # solo limpiamos los que proceden del uploader
+        if name in ss.uploader_names and name not in curr_names:
+            archivos_locales.pop(i)
+            ss.uploader_names.discard(name)
 
-elif fuente == "Subir archivos":
-    up = st.file_uploader(
-        "Arrastra tus vídeos/audio",
-        type=[e.lstrip(".") for e in EXTS],
-        accept_multiple_files=True,
-        key=f"uploader_{ss.uploader_key}"  # <- clave variable para poder resetear
-    )
-
-    # Nombres actualmente visibles en el widget (tras quitar con la “x”, ya no estarán aquí)
-    curr_names = {f.name for f in (up or [])}
-
-    # 1) Sincroniza eliminaciones hechas en el widget (las “x”)
-    if ss.uploader_names:
-        for i, (p, name) in enumerate(list(archivos_locales)):
-            # solo limpiamos los que proceden del uploader
-            if name in ss.uploader_names and name not in curr_names:
-                archivos_locales.pop(i)
-                ss.uploader_names.discard(name)
-
-    # 2) Añade SOLO los nuevos (evita duplicados en cada rerun)
-    new_files = [f for f in (up or []) if f.name not in ss.uploader_names]
-    for f in new_files:
-        dest = carpeta_trabajo / f.name
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        if not dest.exists():  # evita reescribir en cada rerun
-            with open(dest, "wb") as fh:
-                fh.write(f.read())
-        archivos_locales.append((dest, f.name))
-    ss.uploader_names.update(f.name for f in new_files)
+# 2) Añade SOLO los nuevos (evita duplicados en cada rerun)
+new_files = [f for f in (up or []) if f.name not in ss.uploader_names]
+for f in new_files:
+    dest = carpeta_trabajo / f.name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not dest.exists():  # evita reescribir en cada rerun
+        with open(dest, "wb") as fh:
+            fh.write(f.read())
+    archivos_locales.append((dest, f.name))
+ss.uploader_names.update(f.name for f in new_files)
 
 
 # Añadido
