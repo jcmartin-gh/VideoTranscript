@@ -261,7 +261,12 @@ with col_a:
 with col_b:
     if st.button("🧹 Vaciar lista"):
         archivos_locales.clear()
-        st.experimental_rerun()
+         # antes: st.experimental_rerun()
+        if hasattr(st, "experimental_rerun"):
+            st.experimental_rerun()  # compatibilidad con versiones antiguas
+        else:
+            st.rerun()               # Streamlit ≥ 1.29
+
 #Añadido
 
 
