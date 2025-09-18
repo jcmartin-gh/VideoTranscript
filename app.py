@@ -157,6 +157,7 @@ def listar_archivos_drive(drive, folder_id: str) -> List[Dict]:
     return results
 
 def descargar_archivo_drive(drive, file_id: str, destino: Path) -> Path:
+    from googleapiclient.http import MediaIoBaseDownload  # <-- AÑADIR
     request = drive.files().get_media(fileId=file_id)
     destino.parent.mkdir(parents=True, exist_ok=True)
     with open(destino, "wb") as f:
@@ -195,7 +196,10 @@ with st.sidebar:
     st.caption("Consejo: en Streamlit Cloud no hay GPU; usa **small** + **int8** para mejor rendimiento.")
 
 # ----------------------- UI: SELECCIÓN FUENTE -----------------------
-archivos_locales = []   # [(Path, display_name)]
+# archivos_locales = []   # [(Path, display_name)]
+ss = st.session_state   #Añadido
+ss.setdefault("archivos_locales", [])   #Añadido
+archivos_locales = ss["archivos_locales"]   # Añadido [(Path, display_name)]
 carpeta_trabajo = Path("work")
 out_dir = Path("output")
 out_dir.mkdir(exist_ok=True)
@@ -243,10 +247,29 @@ elif fuente == "Subir archivos":
             fh.write(f.read())
         archivos_locales.append((dest, f.name))
 
-# ----------------------- TRANSCRIPCIÓN -----------------------
+# Añadido
+# ---- Acciones sobre la lista de archivos preparada ----
 if archivos_locales:
-    model = load_model(model_name, compute_type_cpu)
+    st.success(f"Archivos preparados: {len(archivos_locales)}")
+    with st.expander("Ver lista de archivos preparados"):
+        for p, name in archivos_locales:
+            st.write(f"- {name}")
 
+col_a, col_b = st.columns(2)
+with col_a:
+    start_now = st.button("▶️ Iniciar transcripción", type="primary", disabled=(len(archivos_locales) == 0))
+with col_b:
+    if st.button("🧹 Vaciar lista"):
+        archivos_locales.clear()
+        st.experimental_rerun()
+#Añadido
+
+
+# ----------------------- TRANSCRIPCIÓN -----------------------
+# DESPUÉS
+# if archivos_locales:
+if 'start_now' in locals() and start_now:
+    model = load_model(model_name, compute_type_cpu)
     resumen_rows = []
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
