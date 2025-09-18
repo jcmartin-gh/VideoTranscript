@@ -66,7 +66,7 @@ def ui_start_processing(filename: str):
     ph = st.empty()
     ph.markdown(
         f"""<div class="inline-row">
-              <div>Procesando: <b>{filename}</b>…</div>
+              <div><b>Procesando</b>: {filename}…</div>
               <div class="spin"></div>
             </div>""",
         unsafe_allow_html=True
@@ -392,7 +392,7 @@ if 'start_now' in locals() and start_now:
         with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
             for local_path, display_name in files_to_process:
                 st.write("---")
-                st.write(f"**Procesando:** {display_name}")
+                #st.write(f"**Procesando:** {display_name}")
                 ph, t0 = ui_start_processing(display_name)
                 # ⬇️ A partir de aquí, mantén tu lógica tal cual (transcribir, guardar SRT/TXT, añadir al ZIP, etc.)
                 try:
@@ -436,9 +436,8 @@ if 'start_now' in locals() and start_now:
                         "txt_min": txt_path.name,
                         "srt": srt_path.name,
                         "tiempo_proceso_seg": round(elapsed, 2),
-                        "tiempo_proceso_hhmmss": _fmt_duration(elapsed)
+                        "tiempo_proceso_hhmmss": _fmt_duration(elapsed),
                     })
-
                 except Exception as e:
                     st.error(f"✗ Error procesando {display_name}: {e}")
                     continue
