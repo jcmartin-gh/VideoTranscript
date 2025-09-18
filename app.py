@@ -199,6 +199,8 @@ with st.sidebar:
 # archivos_locales = []   # [(Path, display_name)]
 ss = st.session_state   #Añadido
 ss.setdefault("archivos_locales", [])   #Añadido
+ss.setdefault("uploader_key", 0)      # <- nuevo: para resetear el file_uploader
+ss.setdefault("uploader_names", set())  # <- nuevo: nombres actualmente subidos por el widget
 archivos_locales = ss["archivos_locales"]   # Añadido [(Path, display_name)]
 carpeta_trabajo = Path("work")
 out_dir = Path("output")
@@ -239,32 +241,54 @@ if fuente.startswith("Google Drive"):
                     archivos_locales.append((local_path, name))
 
 elif fuente == "Subir archivos":
-    up = st.file_uploader("Arrastra tus vídeos/audio", type=[e.lstrip(".") for e in EXTS], accept_multiple_files=True)
-    for f in up or []:
+    up = st.file_uploader(
+        "Arrastra tus vídeos/audio",
+        type=[e.lstrip(".") for e in EXTS],
+        accept_multiple_files=True,
+        key=f"uploader_{ss.uploader_key}"  # <- clave variable para poder resetear
+    )
+
+    # Nombres actualmente visibles en el widget (tras quitar con la “x”, ya no estarán aquí)
+    curr_names = {f.name for f in (up or [])}
+
+    # 1) Sincroniza eliminaciones hechas en el widget (las “x”)
+    if ss.uploader_names:
+        for i, (p, name) in enumerate(list(archivos_locales)):
+            # solo limpiamos los que proceden del uploader
+            if name in ss.uploader_names and name not in curr_names:
+                archivos_locales.pop(i)
+                ss.uploader_names.discard(name)
+
+    # 2) Añade SOLO los nuevos (evita duplicados en cada rerun)
+    new_files = [f for f in (up or []) if f.name not in ss.uploader_names]
+    for f in new_files:
         dest = carpeta_trabajo / f.name
         dest.parent.mkdir(parents=True, exist_ok=True)
-        with open(dest, "wb") as fh:
-            fh.write(f.read())
+        if not dest.exists():  # evita reescribir en cada rerun
+            with open(dest, "wb") as fh:
+                fh.write(f.read())
         archivos_locales.append((dest, f.name))
+    ss.uploader_names.update(f.name for f in new_files)
+
 
 # Añadido
 # ---- Acciones sobre la lista de archivos preparada ----
 if archivos_locales:
     st.success(f"Archivos preparados: {len(archivos_locales)}")
     with st.expander("Ver lista de archivos preparados", expanded=False):
-        # Usamos list(...) para fijar el índice de pintado, y .pop(i) para modificar IN-PLACE
         for i, (p, name) in enumerate(list(archivos_locales)):
             c1, c2 = st.columns([8, 1])
             with c1:
                 st.write(f"- {name}")
             with c2:
                 if st.button("🗑️", key=f"del_{i}"):
-                    archivos_locales.pop(i)  # ← elimina IN-PLACE, mantiene el vínculo con session_state
-                    # Rerun compatible con distintas versiones de Streamlit
+                    archivos_locales.pop(i)
+                    ss.uploader_names.discard(name)  # <- evita que reaparezca si sigue en el widget
                     if hasattr(st, "experimental_rerun"):
                         st.experimental_rerun()
                     else:
                         st.rerun()
+
 else:
     st.info("No hay archivos preparados todavía.")
 
@@ -274,10 +298,13 @@ with col_a:
 with col_b:
     if st.button("🧹 Vaciar lista"):
         archivos_locales.clear()
+        ss.uploader_names.clear()
+        ss.uploader_key += 1   # <- reinicia el widget file_uploader
         if hasattr(st, "experimental_rerun"):
             st.experimental_rerun()
         else:
             st.rerun()
+
 
 #Añadido
 
