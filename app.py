@@ -1,5 +1,5 @@
 # app.py
-# Streamlit app para transcribir vídeos (bloques de 4 min) con faster-whisper
+# Streamlit app para transcribir vídeos con bloques de tiempo con faster-whisper
 # - Fuente: Google Drive (Service Account) o subida de archivos
 # - Salida: .srt + *_transcript_4min.txt + resumen_transcripciones.csv
 
@@ -23,7 +23,7 @@ from typing import List, Dict, Optional
 from faster_whisper import WhisperModel
 
 # ----------------------- CONFIG UI -----------------------
-st.set_page_config(page_title="Transcriptor de Vídeos (4 min)", page_icon="🎧", layout="wide")
+st.set_page_config(page_title="Transcriptor de Vídeos", page_icon="🎧", layout="wide")
 
 # --- UI: CSS global (ponlo una sola vez) ---
 st.markdown("""
@@ -307,7 +307,7 @@ if 'start_now' in locals() and start_now:
                     srt_path = out_dir / (Path(display_name).stem + ".srt")
                     srt_path = guardar_srt(segments_list, srt_path)
 
-                    # Bloques 4 min
+                    # Bloques de tiempo
                     bloques = agrupar_por_bloques(segments_list, bloque_s=bloque_seg)
                     txt_path = out_dir / (Path(display_name).stem + ".txt")
                     txt_path = guardar_transcripcion_4min(txt_path, Path(display_name).stem, bloques)
