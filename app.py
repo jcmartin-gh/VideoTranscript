@@ -251,9 +251,22 @@ elif fuente == "Subir archivos":
 # ---- Acciones sobre la lista de archivos preparada ----
 if archivos_locales:
     st.success(f"Archivos preparados: {len(archivos_locales)}")
-    with st.expander("Ver lista de archivos preparados"):
-        for p, name in archivos_locales:
-            st.write(f"- {name}")
+    with st.expander("Ver lista de archivos preparados", expanded=False):
+        # Usamos list(...) para fijar el índice de pintado, y .pop(i) para modificar IN-PLACE
+        for i, (p, name) in enumerate(list(archivos_locales)):
+            c1, c2 = st.columns([8, 1])
+            with c1:
+                st.write(f"- {name}")
+            with c2:
+                if st.button("🗑️", key=f"del_{i}"):
+                    archivos_locales.pop(i)  # ← elimina IN-PLACE, mantiene el vínculo con session_state
+                    # Rerun compatible con distintas versiones de Streamlit
+                    if hasattr(st, "experimental_rerun"):
+                        st.experimental_rerun()
+                    else:
+                        st.rerun()
+else:
+    st.info("No hay archivos preparados todavía.")
 
 col_a, col_b = st.columns(2)
 with col_a:
@@ -261,11 +274,10 @@ with col_a:
 with col_b:
     if st.button("🧹 Vaciar lista"):
         archivos_locales.clear()
-         # antes: st.experimental_rerun()
         if hasattr(st, "experimental_rerun"):
-            st.experimental_rerun()  # compatibilidad con versiones antiguas
+            st.experimental_rerun()
         else:
-            st.rerun()               # Streamlit ≥ 1.29
+            st.rerun()
 
 #Añadido
 
@@ -274,51 +286,71 @@ with col_b:
 # DESPUÉS
 # if archivos_locales:
 if 'start_now' in locals() and start_now:
-    model = load_model(model_name, compute_type_cpu)
-    resumen_rows = []
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for local_path, display_name in archivos_locales:
-            st.write("---")
-            st.write(f"**Procesando:** {display_name}")
-            try:
-                segments_list, info, palabras_total = transcribir_archivo(
-                    local_path, model, force_lang.strip() or None, beam_size, vad_filter
-                )
+    # --- 2.1 Depurar la lista en session_state (quitar no existentes y duplicados) ---
+    depurada = []
+    vistos = set()
+    for p, name in archivos_locales:
+        p = Path(p)
+        key = (str(p.resolve()), name)
+        if p.exists() and key not in vistos:
+            vistos.add(key)
+            depurada.append((p, name))
+    # Actualizamos IN-PLACE para que el contador también refleje la depuración
+    archivos_locales.clear()
+    archivos_locales.extend(depurada)
 
-                # Guardar SRT
-                srt_path = out_dir / (Path(display_name).stem + ".srt")
-                srt_path = guardar_srt(segments_list, srt_path)
+    # --- 2.2 Congelar el snapshot a procesar (evita que entren borrados recientes) ---
+    files_to_process = archivos_locales[:]  # copia superficial
 
-                # Bloques 4 min
-                bloques = agrupar_por_bloques(segments_list, bloque_s=bloque_seg)
-                txt_path = out_dir / (Path(display_name).stem + ".txt")
-                txt_path = guardar_transcripcion_4min(txt_path, Path(display_name).stem, bloques)
+    if not files_to_process:
+        st.warning("No hay archivos válidos en la lista.")
+    else:
+        model = load_model(model_name, compute_type_cpu)
+        resumen_rows = []
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for local_path, display_name in files_to_process:
+                st.write("---")
+                st.write(f"**Procesando:** {display_name}")
+                # ⬇️ A partir de aquí, mantén tu lógica tal cual (transcribir, guardar SRT/TXT, añadir al ZIP, etc.)
+                try:
+                    segments_list, info, palabras_total = transcribir_archivo(
+                        local_path, model, force_lang.strip() or None, beam_size, vad_filter
+                    )
 
-                # Duración aprox por último segmento
-                if segments_list:
-                    dur = max(float(s.end) for s in segments_list if s.end is not None)
-                else:
-                    dur = 0.0
+                    # Guardar SRT
+                    srt_path = out_dir / (Path(display_name).stem + ".srt")
+                    srt_path = guardar_srt(segments_list, srt_path)
 
-                st.success(f"✓ Listo: {display_name} | Duración aprox: {human_time(dur)} | Idioma detectado: {getattr(info,'language', 'auto')}")
+                    # Bloques 4 min
+                    bloques = agrupar_por_bloques(segments_list, bloque_s=bloque_seg)
+                    txt_path = out_dir / (Path(display_name).stem + ".txt")
+                    txt_path = guardar_transcripcion_4min(txt_path, Path(display_name).stem, bloques)
 
-                # Añadir a ZIP
-                zf.write(srt_path, arcname=srt_path.name)
-                zf.write(txt_path, arcname=txt_path.name)
+                    # Duración aprox por último segmento
+                    if segments_list:
+                        dur = max(float(s.end) for s in segments_list if s.end is not None)
+                    else:
+                        dur = 0.0
 
-                resumen_rows.append({
-                    "archivo_video": display_name,
-                    "duracion_seg": round(dur, 2),
-                    "duracion_hhmmss": human_time(dur),
-                    "idioma": getattr(info, "language", None),
-                    "prob_idioma": round(getattr(info, "language_probability", 0.0), 4) if getattr(info, "language_probability", None) else None,
-                    "palabras": palabras_total,
-                    "bloques_4min": len(bloques),
-                    "bloques_con_texto": sum(1 for b in bloques if b["texto"]),
-                    "txt_4min": txt_path.name,
-                    "srt": srt_path.name
-                })
+                    st.success(f"✓ Listo: {display_name} | Duración aprox: {human_time(dur)} | Idioma detectado: {getattr(info,'language', 'auto')}")
+
+                    # Añadir a ZIP
+                    zf.write(srt_path, arcname=srt_path.name)
+                    zf.write(txt_path, arcname=txt_path.name)
+
+                    resumen_rows.append({
+                        "archivo_video": display_name,
+                        "duracion_seg": round(dur, 2),
+                        "duracion_hhmmss": human_time(dur),
+                        "idioma": getattr(info, "language", None),
+                        "prob_idioma": round(getattr(info, "language_probability", 0.0), 4) if getattr(info, "language_probability", None) else None,
+                        "palabras": palabras_total,
+                        "bloques_4min": len(bloques),
+                        "bloques_con_texto": sum(1 for b in bloques if b["texto"]),
+                        "txt_4min": txt_path.name,
+                        "srt": srt_path.name
+                    })
 
             except Exception as e:
                 st.error(f"✗ Error procesando {display_name}: {e}")
