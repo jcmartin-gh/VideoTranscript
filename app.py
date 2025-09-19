@@ -15,9 +15,9 @@ import pandas as pd
 
 # ==== Google Drive (Service Account) ====
 from typing import List, Dict, Optional
-#from google.oauth2 import service_account
-#from googleapiclient.discovery import build
-#from googleapiclient.http import MediaIoBaseDownload
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 
 # ==== Whisper ====
 from faster_whisper import WhisperModel
@@ -134,6 +134,41 @@ def guardar_transcripcion_4min(ruta_video: Path, titulo: str, bloques) -> Path:
             f.write("\n\n")
     return ruta_txt
 
+#-------UTILIDADES GOOGLE DRIVE----------------------------
+
+def build_drive():
+    info = st.secrets.get("GOOGLE_SERVICE_ACCOUNT", None) or os.environ.get("GOOGLE_SERVICE_ACCOUNT", "")
+    if not info:
+        st.stop()
+    if isinstance(info, str):
+        info = json.loads(info)
+    creds = service_account.Credentials.from_service_account_info(
+        info, scopes=["https://www.googleapis.com/auth/drive.readonly"]
+    )
+    return build("drive", "v3", credentials=creds, cache_discovery=False)
+
+_DRIVE_ID_RX = re.compile(r"[-\w]{25,}")
+def extract_drive_id(s: str) -> str | None:
+    m = _DRIVE_ID_RX.search(s or "")
+    return m.group(0) if m else None
+
+def download_drive_file(file_id: str, dest: Path, svc) -> str:
+    meta = svc.files().get(fileId=file_id, fields="name").execute()
+    name = meta["name"]
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    req = svc.files().get_media(fileId=file_id)
+    with open(dest, "wb") as fh:
+        downloader = MediaIoBaseDownload(fh, req, chunksize=8*1024*1024)  # 8MB
+        done = False
+        prog = st.progress(0.0, text=f"Descargando {name}…")
+        while not done:
+            status, done = downloader.next_chunk()
+            if status:
+                prog.progress(min(1.0, status.progress()))
+        prog.empty()
+    return name
+
+
 # ------------------ CARGA DEL MODELO (cacheado) ------------------
 @st.cache_resource(show_spinner=False)
 def load_model(model_name: str, compute_type_cpu: str):
@@ -175,9 +210,7 @@ if not require_login(
 # ----------------------- UI: SIDEBAR -----------------------
 with st.sidebar:
     st.header("Parámetros")
-
-    #fuente = st.radio("Fuente de archivos", ["Google Drive (Service Account)", "Subir archivos"], index=0)
-
+    fuente = st.radio("Fuente de archivos", ["Google Drive (Service Account)", "Subir archivos"], index=0)
     model_name = st.selectbox("Modelo Whisper (faster-whisper)", ["small", "base", "medium", "large-v3"], index=0)
     force_lang = st.text_input("Forzar idioma (ej. es) [vacío = autodetección]", value="")
     # Beam size en faster-whisper. (entre 1 y 10). Cuanto mayor más exactitud y más lento
@@ -234,9 +267,29 @@ for f in new_files:
     archivos_locales.append((dest, f.name))
 ss.uploader_names.update(f.name for f in new_files)
 
+#-------AÑADIDO PARA GOOGLE DRIVE---------------------
 
-# Añadido
-# ---- Acciones sobre la lista de archivos preparada ----
+carpeta_trabajo = Path("work")
+carpeta_trabajo.mkdir(exist_ok=True)
+
+if fuente == "Google Drive (Service Account)":
+    st.write("**Añadir desde Google Drive**")
+    ids_txt = st.text_area("Pega enlaces o IDs de Drive (uno por línea)")
+    if st.button("➕ Añadir de Drive"):
+        svc = build_drive()
+        for line in (ids_txt or "").splitlines():
+            fid = extract_drive_id(line.strip())
+            if not fid: 
+                continue
+            # obtenemos nombre y descargamos a disco
+            tmp_dest = carpeta_trabajo / f"{fid}.bin"
+            name = download_drive_file(fid, tmp_dest, svc)
+            final_dest = carpeta_trabajo / name
+            tmp_dest.rename(final_dest)
+            archivos_locales.append((final_dest, name))
+        st.success("Archivos de Drive añadidos.")
+
+
 # ---- Acciones sobre la lista de archivos preparada ----
 list_box = st.container()
 with list_box:
