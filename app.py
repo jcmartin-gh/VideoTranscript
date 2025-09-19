@@ -213,7 +213,7 @@ ss.setdefault("uploader_key", 0)
 ss.setdefault("uploader_names", set())
 # 👇 persistencia de descargas
 ss.setdefault("last_zip_bytes", None)
-ss.setdefault("last_zip_http", None)
+# ss.setdefault("last_zip_http", None)
 
 archivos_locales = ss["archivos_locales"]
 carpeta_trabajo = Path("work")
@@ -301,7 +301,7 @@ with col_b:
 if 'start_now' in locals() and start_now:
     # limpia descargas previas
     ss.last_zip_bytes = None
-    ss.last_zip_http = None
+    # ss.last_zip_http = None
 
     # 2.1 Depurar lista
     depurada = []
@@ -385,7 +385,7 @@ if 'start_now' in locals() and start_now:
         zip_path = static_dir / f"transcripciones_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
         with open(zip_path, "wb") as f:
             f.write(zip_bytes)
-        ss.last_zip_http = f"/static/{zip_path.name}"
+        #ss.last_zip_http = f"/static/{zip_path.name}"
 
 # ----------------------- DESCARGAS (siempre visible) -----------------------
 st.markdown("---")
@@ -398,7 +398,7 @@ if st.session_state.last_zip_bytes:
         mime="application/zip",
         key="dl_zip_mem"
     )
-    if st.session_state.last_zip_http:
-        st.markdown(f"[📦 Descarga alternativa (HTTP)]({st.session_state.last_zip_http})")
+    #if st.session_state.last_zip_http:
+    #    st.markdown(f"[📦 Descarga alternativa (HTTP)]({st.session_state.last_zip_http})")
 else:
     st.info("Todavía no hay descargas disponibles. Procesa al menos un archivo.")
