@@ -163,7 +163,15 @@ def transcribir_archivo(local_path: Path, model, force_lang: Optional[str], beam
     palabras_total = sum(len((s.text or "").strip().split()) for s in segments_list if s.text)
     return segments_list, info, palabras_total
 
-
+# --- LOGIN ---
+from simple_login import require_login
+if not require_login(
+    app_name="jcmmVideoTrasncript",
+    password_key="APP_PASSWORD",
+    session_flag="__is_auth",
+):
+    st.stop()
+# --- FIN LOGIN ---
 # ----------------------- UI: SIDEBAR -----------------------
 with st.sidebar:
     st.header("Parámetros")
