@@ -41,7 +41,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("Transcriptor de Vídeos con Whisper")
-st.caption("Convierte vídeos de Google Drive o archivos subidos a transcripciones con marcas de tiempo y subtítulos SRT.")
+st.caption("Convierte vídeos o archivos de audio subidos a transcripciones con marcas de tiempo.")
 
 # ----------------------- CONSTANTES -----------------------
 BLOQUE_SEGUNDOS_DEFAULT = 4 * 60  # 4 minutos
