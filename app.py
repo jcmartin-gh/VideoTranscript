@@ -10,6 +10,9 @@ import zipfile
 from pathlib import Path
 from datetime import timedelta
 
+import re          # 👈 añade esto
+import json        # 👈 y esto, si aún no estaba
+
 import streamlit as st
 import pandas as pd
 
