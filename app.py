@@ -8,10 +8,10 @@ import os
 import math
 import zipfile
 from pathlib import Path
-from datetime import timedelta
+from datetime import timedelta, datetime  # 👈 añadido datetime
 
-import re          # 👈 añade esto
-import json        # 👈 y esto, si aún no estaba
+import re
+import json
 
 import streamlit as st
 import pandas as pd
@@ -62,10 +62,6 @@ def _fmt_duration(s: float) -> str:
     return f"{m:d}:{s:02d}"
 
 def ui_start_processing(filename: str):
-    """
-    Crea/actualiza una línea de estado: 'Procesando: <file> ... [spinner]'
-    Devuelve (placeholder, t0) para cerrar después.
-    """
     ph = st.empty()
     ph.markdown(
         f"""<div class="inline-row">
@@ -77,9 +73,6 @@ def ui_start_processing(filename: str):
     return ph, time.perf_counter()
 
 def ui_end_processing(ph, filename: str, elapsed_sec: float):
-    """
-    Cambia el estado a '✅ Procesado' y muestra duración.
-    """
     ph.markdown(
         f"""<div class="inline-row">
               <div><span class="tick">✅ Procesado</span> <b>{filename}</b></div>
@@ -93,10 +86,6 @@ def human_time(seconds: float) -> str:
     return str(timedelta(seconds=seconds))
 
 def agrupar_por_bloques(segments, bloque_s=240):
-    """
-    segments: lista de objetos faster-whisper con .start, .end, .text
-    Devuelve lista de dicts: {inicio, fin, texto}
-    """
     bloques = []
     segs = list(segments) if segments else []
     if not segs:
@@ -115,7 +104,6 @@ def agrupar_por_bloques(segments, bloque_s=240):
 def srt_time(t: float) -> str:
     ms = int(round((t - int(t)) * 1000))
     t_int = int(t)
-    # HH:MM:SS,mmm con cero relleno
     return str(timedelta(seconds=t_int)).rjust(8, "0") + f",{ms:03d}"
 
 def guardar_srt(segments, ruta_destino: Path) -> Path:
@@ -138,7 +126,6 @@ def guardar_transcripcion_4min(ruta_video: Path, titulo: str, bloques) -> Path:
     return ruta_txt
 
 #-------UTILIDADES GOOGLE DRIVE----------------------------
-
 def build_drive():
     info = st.secrets.get("GOOGLE_SERVICE_ACCOUNT", None) or os.environ.get("GOOGLE_SERVICE_ACCOUNT", "")
     if not info:
@@ -161,7 +148,7 @@ def download_drive_file(file_id: str, dest: Path, svc) -> str:
     dest.parent.mkdir(parents=True, exist_ok=True)
     req = svc.files().get_media(fileId=file_id)
     with open(dest, "wb") as fh:
-        downloader = MediaIoBaseDownload(fh, req, chunksize=8*1024*1024)  # 8MB
+        downloader = MediaIoBaseDownload(fh, req, chunksize=8*1024*1024)
         done = False
         prog = st.progress(0.0, text=f"Descargando {name}…")
         while not done:
@@ -171,11 +158,9 @@ def download_drive_file(file_id: str, dest: Path, svc) -> str:
         prog.empty()
     return name
 
-
 # ------------------ CARGA DEL MODELO (cacheado) ------------------
 @st.cache_resource(show_spinner=False)
 def load_model(model_name: str, compute_type_cpu: str):
-    # Detecta dispositivo y ajusta tipo de cómputo
     device = "cpu"
     try:
         import torch
@@ -184,14 +169,11 @@ def load_model(model_name: str, compute_type_cpu: str):
     except Exception:
         pass
 
-    ct = "float16" if device == "cuda" else compute_type_cpu  # en CPU: int8 por defecto
+    ct = "float16" if device == "cuda" else compute_type_cpu
     st.info(f"Modelo: {model_name} | Dispositivo: {device} | compute_type: {ct}")
     return WhisperModel(model_name, device=device, compute_type=ct)
 
 def transcribir_archivo(local_path: Path, model, force_lang: Optional[str], beam_size: int, vad_filter: bool):
-    """
-    Devuelve: segments(list), info(obj), palabras_total(int)
-    """
     kwargs = dict(beam_size=beam_size, vad_filter=vad_filter)
     if force_lang:
         segments, info = model.transcribe(str(local_path), language=force_lang, **kwargs)
@@ -210,33 +192,30 @@ if not require_login(
 ):
     st.stop()
 # --- FIN LOGIN ---
+
 # ----------------------- UI: SIDEBAR -----------------------
 with st.sidebar:
     st.header("Parámetros")
     fuente = st.radio("Fuente de archivos", ["Google Drive (Service Account)", "Subir archivos"], index=0)
     model_name = st.selectbox("Modelo Whisper (faster-whisper)", ["small", "base", "medium", "large-v3"], index=0)
     force_lang = st.text_input("Forzar idioma (ej. es) [vacío = autodetección]", value="")
-    # Beam size en faster-whisper. (entre 1 y 10). Cuanto mayor más exactitud y más lento
-    # CPU en Streamlit Cloud (sin GPU): empieza con 2–4.
-    # Audio difícil / acentos / ruido: sube a 5–6.
-    # Procesar muchos vídeos / ir más rápido: baja a 1–2.
-    # Más de 7–8 rara vez compensa el coste.
     beam_size = st.number_input("Beam size", 1, 10, 5)
     vad_filter = st.checkbox("VAD filter", value=True)
     bloque_seg = st.number_input("Ventana de capítulo (segundos)", 60, 1800, BLOQUE_SEGUNDOS_DEFAULT, step=60)
-
     compute_type_cpu = st.selectbox("Compute type en CPU", ["int8", "int8_float16", "int16"], index=0)
-
     st.markdown("---")
     st.caption("Consejo: en Streamlit Cloud no hay GPU; usa **small** + **int8** para mejor rendimiento.")
 
 # ----------------------- UI: SELECCIÓN FUENTE -----------------------
-# archivos_locales = []   # [(Path, display_name)]
-ss = st.session_state   #Añadido
-ss.setdefault("archivos_locales", [])   #Añadido
-ss.setdefault("uploader_key", 0)      # <- nuevo: para resetear el file_uploader
-ss.setdefault("uploader_names", set())  # <- nuevo: nombres actualmente subidos por el widget
-archivos_locales = ss["archivos_locales"]   # Añadido [(Path, display_name)]
+ss = st.session_state
+ss.setdefault("archivos_locales", [])
+ss.setdefault("uploader_key", 0)
+ss.setdefault("uploader_names", set())
+# 👇 persistencia de descargas
+ss.setdefault("last_zip_bytes", None)
+ss.setdefault("last_zip_http", None)
+
+archivos_locales = ss["archivos_locales"]
 carpeta_trabajo = Path("work")
 out_dir = Path("output")
 out_dir.mkdir(exist_ok=True)
@@ -245,34 +224,30 @@ up = st.file_uploader(
     "Arrastra tus vídeos/audio",
     type=[e.lstrip(".") for e in EXTS],
     accept_multiple_files=True,
-    key=f"uploader_{ss.uploader_key}"  # <- clave variable para poder resetear
+    key=f"uploader_{ss.uploader_key}"
 )
 
-# Nombres actualmente visibles en el widget (tras quitar con la “x”, ya no estarán aquí)
 curr_names = {f.name for f in (up or [])}
 
-# 1) Sincroniza eliminaciones hechas en el widget (las “x”)
+# 1) Sincroniza eliminaciones hechas en el widget
 if ss.uploader_names:
     for i, (p, name) in enumerate(list(archivos_locales)):
-        # solo limpiamos los que proceden del uploader
         if name in ss.uploader_names and name not in curr_names:
             archivos_locales.pop(i)
             ss.uploader_names.discard(name)
 
-# 2) Añade SOLO los nuevos (evita duplicados en cada rerun)
+# 2) Añade SOLO los nuevos
 new_files = [f for f in (up or []) if f.name not in ss.uploader_names]
 for f in new_files:
     dest = carpeta_trabajo / f.name
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if not dest.exists():  # evita reescribir en cada rerun
+    if not dest.exists():
         with open(dest, "wb") as fh:
             fh.write(f.read())
     archivos_locales.append((dest, f.name))
 ss.uploader_names.update(f.name for f in new_files)
 
 #-------AÑADIDO PARA GOOGLE DRIVE---------------------
-
-carpeta_trabajo = Path("work")
 carpeta_trabajo.mkdir(exist_ok=True)
 
 if fuente == "Google Drive (Service Account)":
@@ -282,9 +257,8 @@ if fuente == "Google Drive (Service Account)":
         svc = build_drive()
         for line in (ids_txt or "").splitlines():
             fid = extract_drive_id(line.strip())
-            if not fid: 
+            if not fid:
                 continue
-            # obtenemos nombre y descargamos a disco
             tmp_dest = carpeta_trabajo / f"{fid}.bin"
             name = download_drive_file(fid, tmp_dest, svc)
             final_dest = carpeta_trabajo / name
@@ -292,14 +266,11 @@ if fuente == "Google Drive (Service Account)":
             archivos_locales.append((final_dest, name))
         st.success("Archivos de Drive añadidos.")
 
-
 # ---- Acciones sobre la lista de archivos preparada ----
 list_box = st.container()
 with list_box:
     if archivos_locales:
         st.success(f"Archivos preparados: {len(archivos_locales)}")
-        st.markdown("")  # separador para evitar solape con el expander
-
         with st.expander("Ver lista de archivos preparados", expanded=False):
             for i, (p, name) in enumerate(list(archivos_locales)):
                 c1, c2 = st.columns([9, 1])
@@ -320,21 +291,19 @@ with col_b:
     if st.button("🧹 Vaciar lista"):
         archivos_locales.clear()
         ss.uploader_names.clear()
-        ss.uploader_key += 1   # <- reinicia el widget file_uploader
+        ss.uploader_key += 1
         if hasattr(st, "experimental_rerun"):
             st.experimental_rerun()
         else:
             st.rerun()
 
-
-#Añadido
-
-
 # ----------------------- TRANSCRIPCIÓN -----------------------
-# DESPUÉS
-# if archivos_locales:
 if 'start_now' in locals() and start_now:
-    # --- 2.1 Depurar la lista en session_state (quitar no existentes y duplicados) ---
+    # limpia descargas previas
+    ss.last_zip_bytes = None
+    ss.last_zip_http = None
+
+    # 2.1 Depurar lista
     depurada = []
     vistos = set()
     for p, name in archivos_locales:
@@ -343,12 +312,11 @@ if 'start_now' in locals() and start_now:
         if p.exists() and key not in vistos:
             vistos.add(key)
             depurada.append((p, name))
-    # Actualizamos IN-PLACE para que el contador también refleje la depuración
     archivos_locales.clear()
     archivos_locales.extend(depurada)
 
-    # --- 2.2 Congelar el snapshot a procesar (evita que entren borrados recientes) ---
-    files_to_process = archivos_locales[:]  # copia superficial
+    # 2.2 Snapshot
+    files_to_process = archivos_locales[:]
 
     if not files_to_process:
         st.warning("No hay archivos válidos en la lista.")
@@ -359,9 +327,7 @@ if 'start_now' in locals() and start_now:
         with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
             for local_path, display_name in files_to_process:
                 st.write("---")
-                #st.write(f"**Procesando:** {display_name}")
                 ph, t0 = ui_start_processing(display_name)
-                # ⬇️ A partir de aquí, mantén tu lógica tal cual (transcribir, guardar SRT/TXT, añadir al ZIP, etc.)
                 try:
                     segments_list, info, palabras_total = transcribir_archivo(
                         local_path, model, force_lang.strip() or None, beam_size, vad_filter
@@ -371,13 +337,14 @@ if 'start_now' in locals() and start_now:
                     srt_path = out_dir / (Path(display_name).stem + ".srt")
                     srt_path = guardar_srt(segments_list, srt_path)
 
-                    # Bloques de tiempo
+                    # Bloques de tiempo + TXT
                     bloques = agrupar_por_bloques(segments_list, bloque_s=bloque_seg)
-                    txt_path = out_dir / (Path(display_name).stem + ".txt")
-                    txt_path = guardar_transcripcion_4min(txt_path, Path(display_name).stem, bloques)
+                    txt_stub = out_dir / Path(display_name).stem
+                    txt_path = guardar_transcripcion_4min(txt_stub, Path(display_name).stem, bloques)
+
                     elapsed = time.perf_counter() - t0
                     ui_end_processing(ph, display_name, elapsed)
-                    # Duración aprox por último segmento
+
                     if segments_list:
                         dur = max(float(s.end) for s in segments_list if s.end is not None)
                     else:
@@ -409,12 +376,29 @@ if 'start_now' in locals() and start_now:
                     st.error(f"✗ Error procesando {display_name}: {e}")
                     continue
 
-    # Resumen CSV
-    #df = pd.DataFrame(resumen_rows)
-    #csv_bytes = df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+        # Persistir ZIP en memoria y en /static
+        zip_buffer.seek(0)
+        zip_bytes = zip_buffer.getvalue()
+        ss.last_zip_bytes = zip_bytes
 
-    st.subheader("Descargas")
-    st.download_button("📥 Descargar ZIP (.srt + .txt)", data=zip_buffer.getvalue(), file_name="transcripciones.zip")
-    #st.download_button("📊 Descargar resumen_transcripciones.csv", data=csv_bytes, file_name="resumen_transcripciones.csv", mime="text/csv")
+        static_dir = Path("static"); static_dir.mkdir(exist_ok=True)
+        zip_path = static_dir / f"transcripciones_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        with open(zip_path, "wb") as f:
+            f.write(zip_bytes)
+        ss.last_zip_http = f"/static/{zip_path.name}"
+
+# ----------------------- DESCARGAS (siempre visible) -----------------------
+st.markdown("---")
+st.subheader("Descargas")
+if st.session_state.last_zip_bytes:
+    st.download_button(
+        "📥 Descargar ZIP (.srt + .txt)",
+        data=st.session_state.last_zip_bytes,
+        file_name="transcripciones.zip",
+        mime="application/zip",
+        key="dl_zip_mem"
+    )
+    if st.session_state.last_zip_http:
+        st.markdown(f"[📦 Descarga alternativa (HTTP)]({st.session_state.last_zip_http})")
 else:
-    st.info("Selecciona una fuente y prepara al menos un archivo para transcribir.")
+    st.info("Todavía no hay descargas disponibles. Procesa al menos un archivo.")
