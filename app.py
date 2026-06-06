@@ -47,7 +47,7 @@ st.title("Transcriptor de Vídeos con Whisper")
 st.caption("Convierte vídeos o archivos de audio subidos a transcripciones con marcas de tiempo.")
 
 # ----------------------- CONSTANTES -----------------------
-BLOQUE_SEGUNDOS_DEFAULT = 4 * 60  # 4 minutos
+BLOQUE_SEGUNDOS_DEFAULT = 4 # 4 segundos
 EXTS = {".mp4", ".mov", ".mkv", ".webm", ".m4a", ".mp3", ".wav"}
 
 # ----------------------- UTILIDADES -----------------------
@@ -201,7 +201,7 @@ with st.sidebar:
     force_lang = st.text_input("Forzar idioma (ej. es) [vacío = autodetección]", value="")
     beam_size = st.number_input("Beam size", 1, 10, 5)
     vad_filter = st.checkbox("VAD filter", value=True)
-    bloque_seg = st.number_input("Ventana de capítulo (segundos)", 60, 1800, BLOQUE_SEGUNDOS_DEFAULT, step=60)
+    bloque_seg = st.number_input("Ventana de capítulo (segundos)", 4, 1800, BLOQUE_SEGUNDOS_DEFAULT, step=1)
     compute_type_cpu = st.selectbox("Compute type en CPU", ["int8", "int8_float16", "int16"], index=0)
     st.markdown("---")
     st.caption("Consejo: en Streamlit Cloud no hay GPU; usa **small** + **int8** para mejor rendimiento.")
